@@ -1,0 +1,130 @@
+---
+title: 'Demo: Pivoting Data in R'
+author: "Sam Rabiyah"
+date: "10/18/2021"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+### 1. Loading in rent stabilization data
+
+For this demo, we want to make a timeline of rent stabilized units in NYC. 
+
+So, let's start by loading in some data from https://github.com/talos/nyc-stabilization-unit-counts.
+
+This project scraped data from PDFs of property tax documents to get estimates for rent stabilized units counts in buildings across NYC. You can read up on the various field names at the Github project page:
+https://github.com/talos/nyc-stabilization-unit-counts#user-content-data-usage.
+
+Unfortunately, the taxbills.nyc site is currently down, so you are no longer able to download this data directly from the links provided in this page. In the meantime, you can feel free to download the raw data from this project. We have also shared the data on Slack in the #data-sources channel. 
+
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+
+rentstab_raw <- read_csv("rentstab.csv")
+```
+
+For this demo, we only want to look at rent stabilized unit counts, which according to the Github doccumentation corresponds to column names that end in "uc". Let's also grab BBL (which is a unique identifier for NYC buildings) and Borough while we're at it:
+
+
+```{r}
+rentstab <- rentstab_raw %>% select(borough, ucbbl, starts_with("uc20") )
+# starts_with(...) and ends_with(...) are neat functions to help you 
+# grab names that fit a certain pattern 
+
+```
+
+
+### 2. Pivoting data into "long" format
+
+Annoyingly, the data separates unit counts for different years into different columns... to make a timeline, we need all of the yearly data to be stored in one column. 
+
+We can use the `pivot_longer` function included in tidyverse to transform our data accordingly. To get a conceptual picture of what we're about to do, see this gif: 
+https://fromthebottomoftheheap.net/assets/img/posts/tidyr-longer-wider.gif
+
+![](img/pivot-longer.gif)
+
+
+Here is how we apply the `pivot_longer` function to our data:
+
+```{r}
+
+rs_long <- rentstab %>% 
+  pivot_longer(
+    starts_with("uc20"),  # The multiple column names we want to mush into one column
+    names_to = "year", # The title for the new column of names we're generating
+    values_to = "units" # The title for the new column of values we're generating
+  )
+
+```
+
+
+Now that we have our data in the proper "long" format, we can start working towards our desired plot. Let's try and make a yearly timeline of rent stab. unit counts for the boroughs of Manhattan and Brooklyn:
+
+
+```{r}
+
+rs_long_manhattan_summary <- rs_long %>% 
+  filter(borough %in% c("MN","BK") # Filter only Manhattan and Brooklyn values
+          & !is.na(units)) %>% # Filter out null unit count values
+  mutate(year = as.numeric(gsub("uc","", year))) %>% # Remove "uc" from year values
+  select(year, borough, units) %>% 
+  # Grouping by 2 columns means each row will have a unique pair of the two columns' values.
+  # Our rows will look like: 2007 MN, 2007 BK, 2008 MN... 
+  group_by(year, borough) %>% 
+  summarise(total_units = sum(units) )
+
+```
+
+### 3. Building a historical bar plot
+
+Let's build our bar graph. We are going to specify a `dodge` property of the plot to show the Manhattan and Brookly bars side-by-side: 
+
+
+```{r}
+
+rs_over_time_graph <- ggplot(rs_long_manhattan_summary) +
+  aes(x=year, y=total_units, fill=borough) +
+    # Note these arguments inside 'geom_bar' :
+    ### stat = "identity" allows us to have both an x and y aestethic with our bar graph
+    ### position = "dodge" puts the different colored bars side-by-side
+  geom_bar(stat = "identity", position = "dodge") +
+    # Restyle the Y-axis labels: 
+  scale_y_continuous(labels = scales::unit_format(scale = 1/1000, unit="K")) +
+    # Restyle the Legend: 
+  scale_fill_discrete(
+    name="Borough",
+    breaks=c("BK", "MN"),
+    labels=c("Brooklyn", "Manhattan")) +
+  labs(
+    title = "Total Rent Stabilized Units over Time",
+    subtitle = "Manhattan and Brooklyn, 2007 to 2017",
+    x = "Year",
+    y = "Total Rent Stabilized Units",
+    caption = "Source: taxbills.nyc"
+  )
+
+rs_over_time_graph
+
+```
+
+
+Hooray! There we have it!
+
+### 4. Pivoting data into "wide" format
+
+Additionally, you may have data that is in this "long" format and wish to transform it into the "wide" format we are used to. Luckily, there is an analogous function called `pivot_wider` that does just that:
+
+
+```{r}
+
+rs_wide <- rs_long %>% 
+  pivot_wider(
+    names_from = year, # The current column containing our future column names 
+    values_from = units # The current column containing the values for our future columns
+  )
+
+```
+
