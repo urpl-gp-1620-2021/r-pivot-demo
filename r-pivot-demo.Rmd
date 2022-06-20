@@ -128,3 +128,55 @@ rs_wide <- rs_long %>%
 
 ```
 
+### 5. Bonus: Mapping RS Units by Community District 
+
+For some added practice with ggplot2, let's use the `sf` package to make a map of which community districts gained and lost the most RS units.
+
+```{r}
+library(sf) # spatial data analysis
+
+# Download Community District boundaries from NYC Open Data
+# https://data.cityofnewyork.us/City-Government/Community-Districts/yfnk-k7r4
+
+cd_boundaries <- read_sf("Community Districts/geo_export_10c8a109-c6a4-461b-ac08-950f6c0fd405.shp") %>% 
+  janitor::clean_names() %>% 
+  # Transform the data to use the NYC/Long Island "Coordinate Reference System"
+  # This will make the map look nice when zoomed in on NYC
+  st_transform(2263)
+
+rentstab_by_cd <- rentstab_raw %>%
+  group_by(cd) %>%
+  summarize(
+    total_rs_2007 = sum(uc2007, na.rm = TRUE),
+    total_rs_2017 = sum(uc2017, na.rm = TRUE)) %>%
+  mutate(rs_pct_change = (total_rs_2017 - total_rs_2007)/total_rs_2007 )
+
+rentstab_data_with_districts <- left_join(cd_boundaries, rentstab_by_cd, by = c("boro_cd" = "cd"))
+
+# https://r-graph-gallery.com/38-rcolorbrewers-palettes.html
+rs_map <- ggplot(rentstab_data_with_districts) + 
+  aes(fill = rs_pct_change) +
+  geom_sf(size = 0.05) +
+  scale_fill_gradient2(
+    # Use ColorBrewer to grab colors:
+    # https://colorbrewer2.org/#type=diverging&scheme=PRGn&n=5
+    low = "#7b3294", 
+    mid = "#f7f7f7", 
+    high = "#008837", 
+    name = "10-year Change",
+    labels = scales::unit_format(scale = 100, unit="%")) +
+  theme(
+    axis.text = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+  ) +
+  labs(
+    title = "Change in Rent Stabilized Units by Community District",
+    subtitle = "NYC, 2007 to 2017",
+    caption = "Source: taxbills.nyc",
+    legend.title = "Percent Change"
+  )
+
+rs_map 
+```
